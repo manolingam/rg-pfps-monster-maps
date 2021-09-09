@@ -1,6 +1,75 @@
-type ExampleEntity @entity {
+type Map @entity {
   id: ID!
-  count: BigInt!
-  owner: Bytes! # address
-  approved: Bytes! # address
+  tokenId: BigInt!
+  tokenUri: String!
+  owner: Owner!
+  monsters: [Monster!]!
+  mintInfo: MapMint!
+  tradeInfo: MapTrade
+}
+
+type Monster @entity {
+  id: ID!
+  tokenId: BigInt!
+  tokenUri: String!
+  owner: Owner
+  monsterInfo: MonsterBook!
+  maps: [Map!]! @derivedFrom(field: "monsters")
+  mintInfo: MonsterMint
+  tradeInfo: MonsterTrade
+}
+
+type Owner @entity {
+  id: ID!
+  address: Bytes!
+  maps: [Map!] @derivedFrom(field: "owner")
+  monsters: [Monster!] @derivedFrom(field: "owner")
+  monsterMints: [MonsterMint!] @derivedFrom(field: "minter")
+  monsterTrades: [MonsterTrade!] @derivedFrom(field: "oldOwner")
+  mapMints: [MapMint!] @derivedFrom(field: "minter")
+  mapTrades: [MapTrade!] @derivedFrom(field: "oldOwner")
+}
+
+type MonsterBook @entity {
+  id: ID!
+  monster: Monster! @derivedFrom(field: "monsterInfo")
+  name: String!
+  size: String!
+  weakness: String!
+  specialAbility: String!
+  locomotion: String!
+  language: String!
+  alignment: String!
+  action1: String!
+  action2: String!
+}
+
+type MonsterMint @entity {
+  id: ID!
+  minter: Owner!
+  monster: Monster! @derivedFrom(field: "mintInfo")
+  time: BigInt!
+}
+
+type MapMint @entity {
+  id: ID!
+  minter: Owner!
+  map: Map! @derivedFrom(field: "mintInfo")
+  time: BigInt!
+}
+
+type MonsterTrade @entity {
+  id: ID!
+  oldOwner: Owner!
+  newOwner: Owner!
+  monster: Monster! @derivedFrom(field: "tradeInfo")
+  time: BigInt!
+}
+
+type MapTrade @entity {
+  id: ID!
+  oldOwner: Owner!
+  newOwner: Owner!
+  map: Map! @derivedFrom(field: "tradeInfo")
+  time: BigInt!
 }

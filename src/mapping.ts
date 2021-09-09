@@ -1,73 +1,230 @@
-import { BigInt } from "@graphprotocol/graph-ts"
+import { Address, BigInt, log } from '@graphprotocol/graph-ts';
 import {
-  MonsterMaps,
-  Approval,
-  ApprovalForAll,
-  OwnershipTransferred,
-  Transfer
-} from "../generated/MonsterMaps/MonsterMaps"
-import { ExampleEntity } from "../generated/schema"
+  Transfer,
+  MonsterMaps as MonsterMapsContract
+} from '../generated/MonsterMaps/MonsterMaps';
+import { MonsterSpawn as MonsterSpawnContract } from '../generated/MonsterSpawn/MonsterSpawn';
+import { MonsterBook as MonsterBookContract } from '../generated/MonsterSpawn/MonsterBook';
 
-export function handleApproval(event: Approval): void {
-  // Entities can be loaded from the store using a string ID; this ID
-  // needs to be unique across all entities of the same type
-  let entity = ExampleEntity.load(event.transaction.from.toHex())
+import {
+  Map,
+  Monster,
+  MonsterBook,
+  Owner,
+  MapMint,
+  MapTrade,
+  MonsterMint,
+  MonsterTrade
+} from '../generated/schema';
 
-  // Entities only exist after they have been saved to the store;
-  // `null` checks allow to create entities on demand
-  if (entity == null) {
-    entity = new ExampleEntity(event.transaction.from.toHex())
+const zeroAddress = '0x0000000000000000000000000000000000000000';
 
-    // Entity fields can be set using simple assignments
-    entity.count = BigInt.fromI32(0)
-  }
+function writeMonsterBook(_monsterId: BigInt): string {
+  let monsterId = _monsterId;
 
-  // BigInt and BigDecimal math are supported
-  entity.count = entity.count + BigInt.fromI32(1)
+  let monsterBook = new MonsterBook(monsterId.toHex());
 
-  // Entity fields can be set based on event parameters
-  entity.owner = event.params.owner
-  entity.approved = event.params.approved
+  let monsterBookContract = MonsterBookContract.bind(
+    Address.fromString('0x1B7c86617636856F3c95868490d23678a7445dfD')
+  );
 
-  // Entities can be written to the store with `.save()`
-  entity.save()
+  let name = monsterBookContract.getName(monsterId);
+  let size = monsterBookContract.getSize(monsterId);
+  let weakness = monsterBookContract.getWeakness(monsterId);
+  let specialAbility = monsterBookContract.getSpecialAbility(monsterId);
+  let locomotion = monsterBookContract.getLocomotion(monsterId);
+  let language = monsterBookContract.getLanguage(monsterId);
+  let alignment = monsterBookContract.getAlignment(monsterId);
+  let action1 = monsterBookContract.getAction1(monsterId);
+  let action2 = monsterBookContract.getAction2(monsterId);
 
-  // Note: If a handler doesn't require existing field values, it is faster
-  // _not_ to load the entity from the store. Instead, create it fresh with
-  // `new Entity(...)`, set the fields that should be updated and save the
-  // entity back to the store. Fields that were not set or unset remain
-  // unchanged, allowing for partial updates to be applied.
+  monsterBook.name = name;
+  monsterBook.size = size;
+  monsterBook.weakness = weakness;
+  monsterBook.specialAbility = specialAbility;
+  monsterBook.locomotion = locomotion;
+  monsterBook.language = language;
+  monsterBook.alignment = alignment;
+  monsterBook.action1 = action1;
+  monsterBook.action2 = action2;
 
-  // It is also possible to access smart contracts from mappings. For
-  // example, the contract that has emitted the event can be connected to
-  // with:
-  //
-  // let contract = Contract.bind(event.address)
-  //
-  // The following functions can then be called on this contract to access
-  // state variables and other data:
-  //
-  // - contract.balanceOf(...)
-  // - contract.getApproved(...)
-  // - contract.getMonsterAtWaypoint(...)
-  // - contract.getMonsterIds(...)
-  // - contract.getWaypointCoord(...)
-  // - contract.getWaypointCoords(...)
-  // - contract.getWaypointCount(...)
-  // - contract.isApprovedForAll(...)
-  // - contract.name(...)
-  // - contract.owner(...)
-  // - contract.ownerOf(...)
-  // - contract.supportsInterface(...)
-  // - contract.symbol(...)
-  // - contract.tokenByIndex(...)
-  // - contract.tokenOfOwnerByIndex(...)
-  // - contract.tokenURI(...)
-  // - contract.totalSupply(...)
+  monsterBook.save();
+
+  return monsterBook.id;
 }
 
-export function handleApprovalForAll(event: ApprovalForAll): void {}
+function handleMonsterClaim(event: Transfer): void {
+  let monsterMint = new MonsterMint(event.transaction.hash.toHex());
+  let monsterMinter = Owner.load(event.params.to.toHex());
+  let monster = Monster.load(event.params.tokenId.toHex());
 
-export function handleOwnershipTransferred(event: OwnershipTransferred): void {}
+  // if no monster already present in the id
+  if (monster == null) {
+    monster = new Monster(event.params.tokenId.toHex());
+    monster.tokenId = event.params.tokenId;
+    monster.monsterInfo = writeMonsterBook(event.params.tokenId);
+  }
 
-export function handleTransfer(event: Transfer): void {}
+  // if no owner already present in the id
+  if (monsterMinter == null) {
+    monsterMinter = new Owner(event.params.to.toHex());
+    monsterMinter.address = event.params.to;
+  }
+
+  let monsterSpawnContract = MonsterSpawnContract.bind(event.address);
+  let mintedTokenUri = monsterSpawnContract.tokenURI(event.params.tokenId);
+
+  monsterMint.minter = monsterMinter.id;
+  monsterMint.time = event.block.timestamp;
+
+  monster.owner = monsterMinter.id;
+  monster.tokenUri = mintedTokenUri;
+  monster.mintInfo = monsterMint.id;
+
+  monsterMint.save();
+  monsterMinter.save();
+  monster.save();
+}
+
+function handleMonsterOwnerChange(event: Transfer): void {
+  let trade = new MonsterTrade(event.transaction.hash.toHex());
+  let monster = Monster.load(event.params.tokenId.toHex());
+  let oldOwner = Owner.load(event.params.from.toHex());
+  let newOwner = Owner.load(event.params.to.toHex());
+
+  if (newOwner == null) {
+    newOwner = new Owner(event.params.to.toHex());
+    newOwner.address = event.params.to;
+  }
+
+  if (monster == null) {
+    monster = new Monster(event.params.tokenId.toHex());
+  }
+
+  trade.oldOwner = oldOwner.id;
+  trade.newOwner = newOwner.id;
+  trade.time = event.block.timestamp;
+
+  monster.owner = newOwner.id;
+  monster.tradeInfo = trade.id;
+
+  newOwner.save();
+  oldOwner.save();
+  monster.save();
+  trade.save();
+}
+
+function handleMapClaim(event: Transfer): void {
+  let mapMint = new MapMint(event.transaction.hash.toHex());
+  let map = new Map(event.params.tokenId.toHex());
+
+  let mapMinter = Owner.load(event.params.to.toHex());
+
+  if (mapMinter == null) {
+    mapMinter = new Owner(event.params.to.toHex());
+    mapMinter.address = event.params.to;
+  }
+
+  let monsterMapsContract = MonsterMapsContract.bind(event.address);
+  let monstersFound = monsterMapsContract.getMonsterIds(event.params.tokenId);
+
+  let monsterSpawnContract = MonsterSpawnContract.bind(
+    Address.fromString('0xeCb9B2EA457740fBDe58c758E4C574834224413e')
+  );
+
+  let monsters: string[];
+
+  for (let i = 0; i < monstersFound.length; i++) {
+    let monster = Monster.load(monstersFound[i].toHex());
+
+    if (monster == null) {
+      monster = new Monster(monstersFound[i].toHex());
+      monster.tokenId = monstersFound[i];
+      monster.monsterInfo = writeMonsterBook(monstersFound[i]);
+    }
+
+    if (!monsterSpawnContract.try_ownerOf(monstersFound[i]).reverted) {
+      let monsterOwnerAddress = monsterSpawnContract.ownerOf(monstersFound[i]);
+      let monsterOwner = Owner.load(monsterOwnerAddress.toHex());
+
+      if (monsterOwner == null) {
+        monsterOwner = new Owner(monsterOwnerAddress.toString());
+        monsterOwner.address = monsterOwnerAddress;
+        monsterOwner.save();
+      }
+    }
+
+    if (!monsterSpawnContract.try_tokenURI(monstersFound[i]).reverted) {
+      let monsterTokenUri = monsterSpawnContract.tokenURI(monstersFound[i]);
+      monster.tokenUri = monsterTokenUri;
+    } else {
+      monster.tokenUri = '';
+    }
+
+    monster.save();
+    monsters.push(monster.id);
+  }
+
+  mapMint.minter = mapMinter.id;
+  mapMint.time = event.block.timestamp;
+
+  map.tokenId = event.params.tokenId;
+  map.tokenUri = monsterMapsContract.tokenURI(event.params.tokenId);
+  map.owner = mapMinter.id;
+  map.mintInfo = mapMint.id;
+  map.monsters = monsters;
+
+  mapMint.save();
+  mapMinter.save();
+  map.save();
+}
+
+function handleMapOwnerChange(event: Transfer): void {
+  let trade = new MapTrade(event.transaction.hash.toHex());
+  let map = Map.load(event.params.tokenId.toHex());
+  let oldOwner = Owner.load(event.params.from.toHex());
+  let newOwner = Owner.load(event.params.to.toHex());
+
+  if (newOwner == null) {
+    newOwner = new Owner(event.params.to.toHex());
+    newOwner.address = event.params.to;
+  }
+
+  if (map == null) {
+    map = new Map(event.params.tokenId.toHex());
+  }
+
+  trade.oldOwner = oldOwner.id;
+  trade.newOwner = newOwner.id;
+  trade.time = event.block.timestamp;
+
+  map.owner = newOwner.id;
+  map.tradeInfo = trade.id;
+
+  newOwner.save();
+  oldOwner.save();
+  trade.save();
+  map.save();
+}
+
+export function handleMonsterTransfer(event: Transfer): void {
+  let from = event.params.from.toHex();
+  let to = event.params.to.toHex();
+
+  if (from == zeroAddress && to != zeroAddress) {
+    handleMonsterClaim(event);
+  } else if (from != zeroAddress && to != zeroAddress) {
+    handleMonsterOwnerChange(event);
+  }
+}
+
+export function handleMapTransfer(event: Transfer): void {
+  let from = event.params.from.toHex();
+  let to = event.params.to.toHex();
+
+  if (from == zeroAddress && to != zeroAddress) {
+    handleMapClaim(event);
+  } else if (from != zeroAddress && to != zeroAddress) {
+    handleMapOwnerChange(event);
+  }
+}
